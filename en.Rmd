@@ -1,0 +1,353 @@
+---
+params: 
+  title: ""
+  publication_date: ""
+  doi: ""
+output: 
+  html_document:
+    anchor_sections: false
+    highlight: null
+    mathjax: null
+    css: ["style.css", "https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700&display=swap"]
+    self_contained: true
+# # To produce Word output, just comment the output lines above and uncomment 
+# # the ones here. 
+# output: word_document
+# always_allow_html: yes
+title: "`r params$title`"
+---
+
+```{r general-setup, include=FALSE}
+## This file contains the ENGLISH version of the data story
+# theme: null
+# Set general chunk options
+knitr::opts_chunk$set(echo = FALSE, fig.showtext = TRUE, fig.retina = 3, 
+                      fig.align = "center", warning = FALSE, message = FALSE)
+
+
+# Install snf.datastory package if not available, otherwise load it
+if (!require("snf.datastory")) {
+  if (!require("devtools")) {
+    install.packages("devtools")
+    library(devtools)
+  }
+  install_github("snsf-data/snf.datastory")
+  library(snf.datastory)
+}
+
+# Load packages
+library(tidyverse)
+library(lubridate) # Dates
+library(scales) # Scales in graphs
+library(conflicted) # Resolve package function conflicts
+library(jsonlite) # Parse JSON
+library(here) # Easy directory structuring system 
+library(ggiraph) # ggplot2 interactivity
+library(flair) # Highlight code inside chunks
+
+# Conflict preferences
+conflict_prefer("filter", "dplyr")
+conflict_prefer("get_datastory_theme", "snf.datastory")
+conflict_prefer("get_datastory_scheme", "snf.datastory")
+
+# Increase showtext package font resolution
+showtext_opts(dpi = 320)
+
+# Set the locale for date formatting (Windows)
+Sys.setlocale("LC_TIME", "English")
+
+# Create function to print number with local language-specific format 
+print_num <- function(x) snf.datastory::print_num(x, lang = "en")
+
+# Knitr hook for local formatting of printed numbers
+knitr::knit_hooks$set(
+  inline <- function(x) {
+    if (!is.numeric(x)) {
+      x
+    } else {
+      print_num(x)
+    }
+  }
+)
+```
+
+```{r print-header-infos, results='asis'}
+# Add publication date to header
+cat(format(as_datetime(params$publication_date), "%d.%m.%Y"))
+
+# Register the Google font (same as Data Portal, is not loaded twice)
+cat(paste0(
+  "<link href='https://fonts.googleapis.com/css?family=",
+  "Source+Sans+Pro:400,700&display=swap' rel='stylesheet'>"
+))
+```
+
+```{r story-specific-setup, include=FALSE}
+# Read in the translations of each discipline
+disp_trans <- read_csv2(here("data", "Discipline_translations.csv"))
+```
+
+<!-- Short lead (2-3 sentences) in bold -->
+
+**The SNSF makes data on its research funding publicly available. Here’s how you can use these data to calculate useful figures easily and quickly.**
+
+The SNSF offers <a href="https://data.snf.ch/datasets" target="_blank">various data sets on its Data Portal</a> that provide detailed information on funded projects, outputs and the people involved.
+
+In a series of data stories, we will show how you can use these data, by employing [R programming language](#rintro) to do analyses. In the first article we explain how to:
+
+*	[download data from SNSF-funded projects](#download-data)
+*	[calculate annual figures](#calculate-yearly-keyfigures)  
+*	[determine the amount of funding by discipline](#most-funded-disciplines) 
+*	[calculate grants by research domain and institution](#inst-research-domains). 
+
+A [section at the end of the main text](#rintro) describes the R programming language; information on data analysis using Microsoft Excel can be found [in the box below](#excel). We chose R for this data story because of its versatility.
+
+<div class="info-box">
+
+### Analysis using Excel {#excel}
+
+Because we also wanted to make it easier to analyse data using Microsoft Excel, SNSF data are available on the Data Portal in both Excel and CSV formats.
+
+* To download the results of a <a href="https://data.snf.ch/grants" target="_blank">grant search</a> in Excel format, click on "Download results"  at the bottom of the results page and select “.XLSX”. To download all data related to the project search in Excel format, click on “Download XLSX” on the <a href="https://data.snf.ch/datasets" target="_blank">datasets page</a>.
+
+* To download data from "<a href="https://data.snf.ch/key-figures/" target="_blank">SNSF Key Figures</a>", click on “Download (Excel)” on the respective page.
+
+Data can be sorted and filtered in the "Data" tab in Excel. You can then group and sum them using the "PivotTable" function.
+
+</div>
+
+### Downloading data {#download-data}
+
+We start by downloading the data on all funded grants into our R environment and filtering the time window from 2011 to 2021. To allocate an award to a year, we use the year in which decisions for a particular call were made (`CallDecisionYear`). Then we look at the available variables.
+
+```{r download-data, echo=TRUE}
+# Load tidyverse packages to gather, manipulate and visualize data
+library(tidyverse)
+
+# Download all funded grants since 1975
+grants <- read_delim("https://data.snf.ch/exportcsv/Grant.csv") %>%  
+  # Subset years 2011-2021
+  filter(CallDecisionYear >= 2011, CallDecisionYear <= 2021)
+  
+# Quick look at the available variables
+grants %>% 
+  glimpse(width = 80)
+```
+
+The screen output shows that after filtering, a total of `r print_num(nrow(grants))` grants were approved between 2011 and 2021. The variables shown in the output are defined in the <a href="https://data.snf.ch/about/glossary" target="_blank">Data Portal’s glossary</a>. The data are now ready for analysis.
+
+### Calculating annual figures {#calculate-yearly-keyfigures}
+
+In the next step, we want to know how the amount granted by the SNSF has evolved over time. To do this, we first group the grants by year (`CallDecisionYear`), count the number of grants and add up the amount approved (`AmountGrantedAllSets`). To better assess the trend over time, we create a simple line chart using the R package <a href="https://ggplot2.tidyverse.org/" target="_blank">`ggplot2`</a>.
+
+```{r, echo=TRUE}
+# Load ggplot2 package to create data visualisations
+library(ggplot2)
+
+# Calculate how much the SNSF granted per year from 2011 to 2021. The total 
+# amount of a grant is allocated to the year in which the grant was awarded. 
+granted_per_year <- grants %>% 
+  group_by(CallDecisionYear) %>% 
+  summarise(
+    # Total granted in million CHF per year. The total amount of a grant is 
+    # allocated to the year in which the grant was awarded. 
+    total_granted = sum(AmountGrantedAllSets, na.rm = TRUE) / 1000000,
+    # Number of grants
+    n_grants = n()
+  ) %>% 
+  ungroup()
+
+# Plot funding per year
+granted_per_year %>%  
+  ggplot(aes(x = CallDecisionYear, y = total_granted)) + 
+  geom_line(size = 0.5, color = "#5298BD") + 
+  geom_point(size = 2.5, color = "#5298BD") +
+  scale_x_continuous(breaks = seq(2011, 2021, 1)) + 
+  # Start y-axis at zero
+  scale_y_continuous(limits = c(0, max(granted_per_year$total_granted), 200)) +
+  labs(title = "Total approved amount of SNSF grants", 
+       x = "\nYear of call decision", y = "Approved amount\n(million CHF)\n", 
+       subtitle = paste0(min(granted_per_year$CallDecisionYear), "-", 
+       max(granted_per_year$CallDecisionYear))) +
+  theme_light()
+```
+
+SNSF funding increased from CHF `r round(granted_per_year %>% filter(CallDecisionYear == 2011) %>% pull(total_granted))` million in 2011 to CHF `r round(granted_per_year %>% filter(CallDecisionYear == 2021) %>% pull(total_granted))` million in 2021^[The figures analysed in this data story are larger than those presented in the <a href="https://data.snf.ch/key-figures" target="_blank">SNSF Key Figures</a>. The difference is that the data contained in the data download used here also include figures on <a href="https://www.snf.ch/en/EcRzGgwFJMZjfnNc/page/national-centres-of-competence-in-research-nccrs" target="_blank">National Centres of Competence in Research (NCCRs)</a>, which are shown separately in the key figures.]. This represents an increase of `r print_num(round((100 / granted_per_year %>% filter(CallDecisionYear == 2011) %>% pull(total_granted)) * granted_per_year %>% filter(CallDecisionYear == 2021) %>% pull(total_granted) - 100, 1))` per cent (without adjusting for inflation). The two peaks in 2014 and 2018 reflect the launch of new <a href="https://www.snf.ch/en/EcRzGgwFJMZjfnNc/page/national-centres-of-competence-in-research-nccrs" target="_blank">National Centres of Competence in Research (NCCRs)</a> in those years. We determine that by looking at individual grants for the two years (`View(grants)` allows you to output all grant amounts as a table).
+
+If more detail is desired, we can also include the funding scheme category (project funding, careers, programmes, infrastructure, science communication) in the grouping (using `FundingInstrumentLevel1`) and then display the amounts awarded separately by category.
+
+
+```{r approved-amount-per-category, include=FALSE}
+# Calculate how much the SNSF granted per year and per funding scheme group 
+# from 2011 to 2021. The total amount of a grant is allocated to the year in 
+# which the grant was awarded. 
+granted_per_year_fi_group <- grants %>% 
+  group_by(CallDecisionYear, FundingInstrumentLevel1) %>% 
+  summarise(
+    # Total granted in million CHF per year
+    total_granted = sum(AmountGrantedAllSets, na.rm = TRUE) / 1000000,
+    n_grants = n()
+  ) %>% 
+  ungroup()
+
+# Plot funding per year, grouped by funding scheme category
+granted_per_year_fi_group %>%  
+  ggplot(aes(x = CallDecisionYear, y = total_granted)) + 
+  geom_line(size = 0.5, color = "#5298BD") + 
+  geom_point(size = 2.5, color = "#5298BD") +
+  scale_x_continuous(breaks = seq(2011, 2021, 2)) + 
+  # Start y axis at zero
+  scale_y_continuous(limits = c(0, 
+                                max(granted_per_year_fi_group$total_granted))) +
+  labs(title = "Total approved amount of SNSF grants, by funding scheme group", 
+       x = "\nYear of call decision", y = "Approved amount\n(million CHF)\n", 
+       subtitle = paste0(min(granted_per_year_fi_group$CallDecisionYear), "-", 
+       max(granted_per_year_fi_group$CallDecisionYear))) +
+  # Grouped by funding scheme category
+  facet_wrap(~FundingInstrumentLevel1) +
+  theme_light()
+```
+
+```{r, echo=FALSE}
+# Highlight the changed sections of the chunk before with the flair package
+decorate("approved-amount-per-category") %>% 
+  flair("# Grouped by funding scheme category") %>% 
+  flair("facet_wrap(~FundingInstrumentLevel1) +") %>% 
+  flair("FundingInstrumentLevel1") %>%
+  knit_print.with_flair()
+```
+
+Note that the amounts differ markedly between the categories. The SNSF awarded the highest amounts to project funding, and the lowest amounts to science communication.
+
+### Amount of funding by discipline {#most-funded-disciplines}
+
+Next, we wish to find out which disciplines have received the most funding in recent years. To do this, we group the amounts according to the main discipline specified by the applicant (`MainDiscipline`), sort the values according to their size (in millions of Swiss francs) and display the ten disciplines with the largest amounts in a table. Note: Success rates cannot be derived from the funding amount.
+
+```{r, echo=TRUE}
+# Calculate per main discipline: funding, number of grants, funding share
+most_funded_disciplines <- grants %>% 
+  # Remove Sinergia grants due to their interdisciplinary nature
+  filter(FundingInstrumentReporting != "Sinergia") %>% 
+  group_by(MainDiscipline) %>%  
+  summarise(
+    # Total granted in million CHF per year. The total amount of a grant is 
+    # allocated to the year in which the grant was awarded. 
+    total_granted = sum(AmountGrantedAllSets, na.rm = TRUE) / 1000000,
+    n_grants = n()
+  ) %>% 
+  ungroup() %>% 
+  # Calculate funding for each main discipline
+  mutate(share = 100 * (total_granted / sum(total_granted))) %>% 
+  # Subset the 10 main disciplines with the biggest volume
+  arrange(desc(total_granted)) %>%  
+  slice(1:10)
+
+# Print table
+most_funded_disciplines %>% 
+  knitr::kable()
+```
+
+Thus, we see that "`r most_funded_disciplines %>% slice(1) %>% pull(MainDiscipline)`" received `r round(most_funded_disciplines %>% slice(1) %>% pull(total_granted))` million Swiss francs, or a `r print_num(round(most_funded_disciplines %>% slice(1) %>% pull(share), 1))` per cent share of the total, for `r most_funded_disciplines %>% slice(1) %>% pull(n_grants)` grants, making it the most funded main discipline.
+
+### Research domains per institution {#inst-research-domains}
+
+Finally, we would like to know how the distribution of research domains differs among SNSF-funded projects at Swiss institutions. The grant disciplines represented in the data all fall under one of three domains: social sciences and humanities (SSH, "Humanities and Social Sciences"); mathematics, natural and engineering sciences (MINT, "Mathematics, Natural and Engineering Sciences"); and life sciences (LS, "Biology and Medicine"). The variable `ResearchInstitution` refers to the institution at which the research for a given grant is primarily done; in most cases this corresponds to the institution of the responsible applicant. To enhance comparability, we restrict the search to project funding at the larger institutions. Accordingly, in a first step, we filter the project funding scheme (`FundingInstrumentLevel1`) and retain only institutions at which researchers were awarded 50 grants between 2011 and 2021.
+
+
+```{r list-of-institutions-with-over-50-grants, echo=TRUE}
+# Create a vector with institutions with more than 50 grants between 2011-2021
+inst_above_50_grants <- grants %>% 
+  # Subset project funding
+  filter(FundingInstrumentLevel1 == "Projects") %>% 
+  count(ResearchInstitution, sort = TRUE) %>% 
+  # Keep only institutions with with more than 50 grants
+  filter(n > 50)
+
+inst_above_50_grants
+```
+
+Of the total `r grants %>% filter(FundingInstrumentLevel1 == "Projects") %>% distinct(ResearchInstitution) %>% nrow()` institutions awarded grants under the project funding scheme during the period covered, `r nrow(inst_above_50_grants)` have more than 50 grants. Let’s take a closer look at these `r nrow(inst_above_50_grants)` institutions.
+
+First, we count the number of SNSF grants per research domain at each institution. Then we calculate the share per institution. Finally, we plot the research domain shares per institution in a stacked bar chart, in alphabetical order.
+
+```{r research-domain-profile-per-institution, fig.height=9, echo=TRUE}
+# Project funding SSH/MINT/LS: Calculate the shares of each research domain in 
+# the number of grants per funded research institution (2011-2021)
+inst_research_domain_shares <- grants %>% 
+  # Subset project funding
+  filter(FundingInstrumentLevel1 == "Projects",
+         # Only the institutions more than 50 grants
+         ResearchInstitution %in% inst_above_50_grants$ResearchInstitution) %>% 
+  count(ResearchInstitution, MainDiscipline_Level1) %>%  
+  # Calculate the share of each institution
+  group_by(ResearchInstitution) %>%  
+  mutate(freq = n / sum(n)) %>%  
+  # Count the number of grants per research domain in each institution
+  ungroup() %>% 
+  # The institution names are too long for the graph, only keep their 
+  # abbreviation (after the "-" character in the name)
+  mutate(ResearchInstitution = str_extract(ResearchInstitution, 
+                                           "(?<=- ).*"), 
+         # Ordering of the research domains
+         MainDiscipline_Level1 = fct_relevel(
+           MainDiscipline_Level1, 
+           c("Humanities and Social Sciences", 
+             "Mathematics, Natural- and Engineering Sciences", 
+             "Biology and Medicine"))) 
+
+# Plot the shares
+inst_research_domain_shares %>%  
+  ggplot(aes(x = fct_rev(ResearchInstitution), 
+             y = freq, fill = fct_rev(MainDiscipline_Level1))) + 
+  geom_col(color = "white") + 
+  # Show percentage label, but only when the share is at least 5%
+  geom_text(aes(label =  if_else(freq >= 0.05, paste0(round(freq * 100), "%"), 
+                                 "")), 
+            position = position_stack(vjust = 0.5), color = "white", size = 3) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(x = NULL, y = NULL) +
+  # Override ggplot default theme
+  scale_fill_manual(values = c("#71B294", "#FBBE5E", "#5298BD"), 
+                    guide = guide_legend(reverse = TRUE, ncol = 1)) +
+  coord_flip() +
+  labs(title = "Research domains in Project Funding, by research institution", 
+    subtitle = paste0(min(granted_per_year$CallDecisionYear), "-", 
+       max(granted_per_year$CallDecisionYear), 
+       ", institutions with >50 grants")) +
+  theme_light() + 
+  theme(legend.position = "bottom", 
+        legend.title = element_blank()) 
+```
+
+The chart shows that the shares of research domains of SNSF projects at the various institutions vary greatly. 80 per cent or more of the projects at the University of Applied Sciences and Arts of Western Switzerland (HES-SO), the Geneva Graduate Institute (IHEID), the Universities of Lucerne (LU) and St. Gallen (SG), and the Zurich University of the Arts (ZHdK) fall into the area of social sciences and humanities. Over 80 per cent of projects at the Swiss Federal Laboratories for Materials Science and Technology (EMPA) and the Paul Scherrer Institute (PSI) fall under the MINT disciplines. Among the institutions listed, none has a comparable share of projects in the life sciences. At `r round(inst_research_domain_shares %>% filter(MainDiscipline_Level1 == "Biology and Medicine", ResearchInstitution == "LA") %>% arrange(-freq) %>% slice(1) %>% pull(freq) * 100)` per cent, the share of life sciences is highest at the University of Lausanne.
+
+<div class="info-box">
+
+### Introduction to R {#rintro}
+
+<a href="https://www.r-project.org/" target="_blank">R</a> is a free programming language that is especially suited to doing statistical calculations and creating data visualisations. As a development environment, we recommend <a href="https://www.rstudio.com/" target="_blank">RStudio</a>, which is also free. Further links:
+
+*	<a href="https://rstudio-education.github.io/hopr/starting.html" target="_blank">Installing R and RStudio on Windows, Mac and Linux</a>
+*	<a href="https://r4ds.had.co.nz/" target="_blank">Getting started with R and the `tidyverse`: "R for Data Science"</a>
+* <a href="https://ggplot2-book.org/" target="_blank">Creating data visualisations with the `ggplot2` package: "ggplot2: elegant graphics for data analysis"</a>
+
+</div>
+
+<p><em>
+Our data stories series shows you how to use SNSF open data to analyse research funding. To enhance practical relevance and reproducibility, we have incorporated the R programming language code directly into this story.
+</em></p>
+
+Data, text and code of this data story are <a href="https://github.com/snsf-data/datastory_use_snsf_open_data" target="_blank">available on Github</a> and <a href="https://doi.org/10.46446/datastory.use-snsf-open-data" target="_blank">archived on Zenodo</a>.<br>DOI: 10.46446/datastory.use-snsf-open-data
+
+```{r prevent-internal-snsf-packages, include=FALSE}
+# Internal SNSF packages must not be used in data stories, as their
+# pre-processing functions are internal and the corporate design differs from
+# the data portal.
+if (any(c("snfverse", "snf.preprocessing", "snf.plot") %in% 
+        loadedNamespaces())) {
+  stop(glue(
+    "You must not use internal SNSF packages in data stories.",
+    " Please resort to snf.datastory."
+  ))
+}
+```

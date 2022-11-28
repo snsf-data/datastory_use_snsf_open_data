@@ -1,0 +1,356 @@
+---
+params: 
+  title: ""
+  publication_date: ""
+  doi: ""
+output:
+  html_document:
+    anchor_sections: false
+    highlight: null
+    mathjax: null
+    css: ["style.css", "https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,700&display=swap"]
+    self_contained: true
+# # To produce Word output, just comment the output lines above and uncomment 
+# # the ones here. 
+# output: word_document
+# always_allow_html: yes
+title: "`r params$title`"
+---
+
+```{r general-setup, include=FALSE}
+## This file contains the FRENCH version of the data story
+
+# Set general chunk options
+knitr::opts_chunk$set(
+  echo = FALSE, fig.showtext = TRUE, fig.retina = 3,
+  fig.align = "center", warning = FALSE, message = FALSE
+)
+
+# Install snf.datastory package if not available, otherwise load it
+if (!require("snf.datastory")) {
+  if (!require("devtools")) {
+    install.packages("devtools")
+    library(devtools)
+  }
+  install_github("snsf-data/snf.datastory")
+  library(snf.datastory)
+}
+
+# Load packages
+library(tidyverse)
+library(lubridate) # Dates
+library(scales) # Scales in graphs
+library(conflicted) # Resolve package function conflicts
+library(jsonlite) # Parse JSON
+library(here) # Easy directory structuring system 
+library(ggiraph) # ggplot2 interactivity
+library(flair) # Highlight code inside chunks
+
+# Conflict preferences
+conflict_prefer("filter", "dplyr")
+conflict_prefer("get_datastory_theme", "snf.datastory")
+conflict_prefer("get_datastory_scheme", "snf.datastory")
+
+# Increase showtext package font resolution
+showtext_opts(dpi = 320)
+
+# Set the locale for date formatting (Windows)
+Sys.setlocale("LC_TIME", "French")
+
+# Create function to print number with local language-specific format
+print_num <- function(x) snf.datastory::print_num(x, lang = "fr")
+
+# Knitr hook for local formatting of printed numbers
+knitr::knit_hooks$set(
+  inline <- function(x) {
+    if (!is.numeric(x)) {
+      x
+    } else {
+      print_num(x)
+    }
+  }
+)
+```
+
+```{r print-header-infos, results='asis'}
+# Add publication date to header
+cat(format(as_datetime(params$publication_date), "%d.%m.%Y"))
+
+# Register the Google font (same as Data Portal, is not loaded twice)
+cat(paste0(
+  "<link href='https://fonts.googleapis.com/css?family=",
+  "Source+Sans+Pro:400,700&display=swap' rel='stylesheet'>"
+))
+```
+
+```{r story-specific-setup, include=FALSE}
+# Read in the translations of each discipline
+disp_trans <- read_csv2(here("data", "Discipline_translations.csv"))
+```
+
+<!-- Short lead (2-3 sentences) in bold -->
+
+**Le FNS rend publiques les données relatives à la recherche qu’il encourage. Nous vous expliquons ci-après comment vous pouvez les utiliser pour générer rapidement et simplement des chiffres utiles.**
+
+Sur son <a href="https://data.snf.ch/" target="_blank">portail de données</a>, le FNS publie plusieurs <a href="https://data.snf.ch/datasets" target="_blank">ensembles de données</a>. Ils fournissent des informations détaillées sur les projets encouragés, leurs résultats et les personnes participantes.
+
+Comment ces données peuvent-elles être exploitées ? A travers plusieurs récits de données, nous vous présenterons différentes analyses pouvant être réalisées au moyen de la [langue de programmation R](#rintro). Dans un premier article, nous vous montrerons comment :
+
+*	[télécharger les données de projets encouragés par le FNS](#download-data);
+*	calculer des [chiffres annuels](#calculate-yearly-keyfigures);
+*	[déterminer le volume d’encouragement en fonction des disciplines](#most-funded-disciplines);
+*	[établir les domaines scientifiques des institutions](#inst-research-domains).
+
+Vous trouverez de plus amples renseignements sur ce qu’est précisément la langue de programmation R dans un [paragraphe situé à la fin du texte principal](#rintro) et des informations sur l’analyse de données avec Microsoft Excel dans [l’encadré ci-dessous](#excel). R est utilisée pour ces récits de données, car elle offre des possibilités d’analyse plus variées.
+
+<div class="info-box">
+
+### Utilisation d’Excel à des fins d’analyse {#excel}
+
+Afin de faciliter l’analyse de nos données avec Microsoft Excel, les données disponibles sur le portail du FNS sont disponibles, mais aussi au format Excel en plus du format CSV.
+
+* Si vous souhaitez télécharger les résultats d’une <a href="https://data.snf.ch/grants" target="_blank">recherche de projet</a> que vous avez effectuée, cliquez sur « Télécharger les résultats » à la fin de la page de résultats et choisissez «.XLSX ». Pour télécharger toutes les données relatives à un projet sous forme de fichier Excel, cliquer sur « Download XLSX » sur la <a href="https://data.snf.ch/datasets" target="_blank">page des sets de données</a>.
+
+* Pour télécharger des « <a href="https://data.snf.ch/key-figures/" target="_blank">chiffres clés FNS</a> », cliquez sur « Télécharger (Excel) » sur la page correspondante.
+
+Les données peuvent être triées et filtrées dans l’onglet « Données » sur Excel. La fonction « Tableau croisé dynamique » permet de les regrouper et de les additionner.
+
+</div>
+
+### Télécharger des données {#download-data}
+
+Commençons par télécharger les données correspondant aux projets encouragés dans notre environnement R, et à les filtrer selon la fenêtre temporelle 2011-2021. Pour attribuer un subside à un exercice, nous nous basons sur l’année durant laquelle les décisions relatives à une mise au concours particulière ont été prononcées, autrement dit le `CallDecisionYear.` Puis examinons les variables présentes dans les données.
+
+```{r download-data, echo=TRUE}
+# Load tidyverse packages to gather, manipulate and visualize data
+library(tidyverse)
+
+# Download all funded grants since 1975
+grants <- read_delim("https://data.snf.ch/exportcsv/Grant.csv") %>%  
+  # Subset years 2011-2021
+  filter(CallDecisionYear >= 2011, CallDecisionYear <= 2021)
+  
+# Quick look at the available variables
+grants %>% 
+  glimpse(width = 80)
+```
+
+Les résultats qui s’affichent dans la fenêtre de console nous montrent que, selon le filtre appliqué, `r print_num(nrow(grants))` subsides ont été octroyés entre 2011 et 2021. Les variables apparaissant dans les résultats sont définies dans le <a href="https://data.snf.ch/about/glossary" target="_blank">glossaire du portail de données</a>. Les données sont désormais prêtes à être analysées.
+
+### Calculer des chiffres annuels {#calculate-yearly-keyfigures}
+
+Passons maintenant à l’étape suivante, pour déterminer comment le montant approuvé a évolué au fil des années. Pour cela, nous regroupons tout d’abord les subsides par exercice (variable `CallDecisionYear`), comptons le nombre de subsides et additionnons les financements accordés (variable `AmountGrantedAllSets`). Afin de mieux visualiser cette évolution, nous la représentons sous la forme d’un diagramme linéaire simple au moyen du R-Package <a href="https://ggplot2.tidyverse.org/" target="_blank">`ggplot2`</a>.
+
+```{r, echo=TRUE}
+# Load ggplot2 package to create data visualisations
+library(ggplot2)
+
+# Calculate how much the SNSF granted per year from 2011 to 2021. The total 
+# amount of a grant is allocated to the year in which the grant was awarded. 
+granted_per_year <- grants %>% 
+  group_by(CallDecisionYear) %>% 
+  summarise(
+    # Total granted in million CHF per year. The total amount of a grant is 
+    # allocated to the year in which the grant was awarded. 
+    total_granted = sum(AmountGrantedAllSets, na.rm = TRUE) / 1000000,
+    # Number of grants
+    n_grants = n()
+  ) %>% 
+  ungroup()
+
+# Plot funding per year
+granted_per_year %>%  
+  ggplot(aes(x = CallDecisionYear, y = total_granted)) + 
+  geom_line(size = 0.5, color = "#5298BD") + 
+  geom_point(size = 2.5, color = "#5298BD") +
+  scale_x_continuous(breaks = seq(2011, 2021, 1)) + 
+  # Start y-axis at zero
+  scale_y_continuous(limits = c(0, max(granted_per_year$total_granted), 200)) +
+  labs(title = "Total approved amount of SNSF grants", 
+       x = "\nYear of call decision", y = "Approved amount\n(million CHF)\n", 
+       subtitle = paste0(min(granted_per_year$CallDecisionYear), "-", 
+       max(granted_per_year$CallDecisionYear))) +
+  theme_light()
+```
+
+
+Le montant approuvé par le FNS est passé de `r round(granted_per_year %>% filter(CallDecisionYear == 2011) %>% pull(total_granted))` millions de francs en 2011 à `r round(granted_per_year %>% filter(CallDecisionYear == 2021) %>% pull(total_granted))` millions de francs en 2021^[Les chiffres analysés dans ce récit de données sont plus importants que les chiffres présentés sous l’onglet « <a href="https://data.snf.ch/key-figures/funding-instruments" target="_blank">Chiffres clés FNS</a> ». Cette différence tient au fait que les données téléchargées ici contiennent également des chiffres relatifs aux <a href="https://www.snf.ch/fr/EcRzGgwFJMZjfnNc/page/poles-de-recherche-nationaux-prn" target="_blank">Pôles de recherche nationaux (PRN)</a> qui apparaissent séparément dans les chiffres clés.]. Cela correspond à une hausse de `r print_num(round((100 / granted_per_year %>% filter(CallDecisionYear == 2011) %>% pull(total_granted)) * granted_per_year %>% filter(CallDecisionYear == 2021) %>% pull(total_granted) - 100, 1))` % (sans correction du renchérissement). Les deux pics observés en 2014 et 2018 sont dus aux nouveaux <a href="https://www.snf.ch/fr/EcRzGgwFJMZjfnNc/page/poles-de-recherche-nationaux-prn" target="_blank">Pôles de recherche nationaux (PRN)</a> qui avaient respectivement été lancés à l’époque. Cette constatation peut être établie en consultant un à un les différents projets et les montants approuvés sur ces deux exercices (la commande `View(grants)` permet d’afficher tous les subsides sous forme de tableau).
+
+Si nous souhaitons plus de détails, nous pouvons également inclure la catégorie d’encouragement (projets ou encouragement de projets, carrières, programme, infrastructures, communication scientifique) dans le classement (avec la variable `FundingInstrumentLevel1`) et obtenir une représentation séparée des montants approuvés par catégorie.
+
+```{r approved-amount-per-category, include=FALSE}
+# Calculate how much the SNSF granted per year and per funding scheme group 
+# from 2011 to 2021. The total amount of a grant is allocated to the year in 
+# which the grant was awarded. 
+granted_per_year_fi_group <- grants %>% 
+  group_by(CallDecisionYear, FundingInstrumentLevel1) %>% 
+  summarise(
+    # Total granted in million CHF per year
+    total_granted = sum(AmountGrantedAllSets, na.rm = TRUE) / 1000000,
+    n_grants = n()
+  ) %>% 
+  ungroup()
+
+# Plot funding per year, grouped by funding scheme category
+granted_per_year_fi_group %>%  
+  ggplot(aes(x = CallDecisionYear, y = total_granted)) + 
+  geom_line(size = 0.5, color = "#5298BD") + 
+  geom_point(size = 2.5, color = "#5298BD") +
+  scale_x_continuous(breaks = seq(2011, 2021, 2)) + 
+  # Start y axis at zero
+  scale_y_continuous(limits = c(0, 
+                                max(granted_per_year_fi_group$total_granted))) +
+  labs(title = "Total approved amount of SNSF grants, by funding scheme group", 
+       x = "\nYear of call decision", y = "Approved amount\n(million CHF)\n", 
+       subtitle = paste0(min(granted_per_year_fi_group$CallDecisionYear), "-", 
+       max(granted_per_year_fi_group$CallDecisionYear))) +
+  # Grouped by funding scheme category
+  facet_wrap(~FundingInstrumentLevel1) +
+  theme_light()
+```
+
+```{r, echo=FALSE}
+# Highlight the changed sections of the chunk before with the flair package
+decorate("approved-amount-per-category") %>% 
+  flair("# Grouped by funding scheme category") %>% 
+  flair("facet_wrap(~FundingInstrumentLevel1) +") %>% 
+  flair("FundingInstrumentLevel1") %>%
+  knit_print.with_flair()
+```
+
+Nous constatons qu’en fonction des catégories, il existe des écarts importants dans la hauteur des montants approuvés par le FNS. Les montants les plus élevés ont été octroyés à l’encouragement de projets, les plus faibles à la communication scientifique.
+
+### Encouragement en fonction des disciplines {#most-funded-disciplines}
+
+Nous souhaitons maintenant déterminer quelles sont les disciplines qui ont bénéficié des montants les plus importants au cours des dernières années. Pour ce faire, nous regroupons les subsides en fonction de la discipline principale définie par la personne requérante (variable `MainDiscipline`), classons les valeurs selon leur taille (en millions de francs), et établissons un tableau des dix disciplines ayant bénéficié des financements les plus conséquents : les montants approuvés ne permettent pas de tirer de conclusion quant aux taux de succès correspondants.
+
+```{r, echo=TRUE}
+# Calculate per main discipline: funding, number of grants, funding share
+most_funded_disciplines <- grants %>% 
+  # Remove Sinergia grants due to their interdisciplinary nature
+  filter(FundingInstrumentReporting != "Sinergia") %>% 
+  group_by(MainDiscipline) %>%  
+  summarise(
+    # Total granted in million CHF per year. The total amount of a grant is 
+    # allocated to the year in which the grant was awarded. 
+    total_granted = sum(AmountGrantedAllSets, na.rm = TRUE) / 1000000,
+    n_grants = n()
+  ) %>% 
+  ungroup() %>% 
+  # Calculate funding for each main discipline
+  mutate(share = 100 * (total_granted / sum(total_granted))) %>% 
+  # Subset the 10 main disciplines with the biggest volume
+  arrange(desc(total_granted)) %>%  
+  slice(1:10)
+
+# Print table
+most_funded_disciplines %>% 
+  knitr::kable()
+```
+
+Nous constatons ainsi qu’avec `r round(most_funded_disciplines %>% slice(1) %>% pull(total_granted))` millions de francs, soit `r print_num(round(most_funded_disciplines %>% slice(1) %>% pull(share), 1))` % du volume total, le financement le plus important a été octroyé à `r most_funded_disciplines %>% slice(1) %>% pull(n_grants)` projets rattachés à la discipline principale « `r most_funded_disciplines %>% slice(1) %>% pull(MainDiscipline)` » (`r most_funded_disciplines %>% left_join(disp_trans, by = c("MainDiscipline" = "Discipline")) %>% slice(1) %>% pull(Discipline_Fr)`).
+
+### Domaine scientifique par institution {#inst-research-domains}
+
+Enfin, nous souhaitons savoir dans quelle mesure la représentation des trois domaines scientifiques auxquels appartiennent les projets encouragés par le FNS varie d’une institution suisse à l’autre. Les disciplines auxquelles sont rattachés les subsides dans les données peuvent être classées dans l’un des trois domaines suivants : sciences humaines et sociales (disciplines SHS, « Humanities and Social Sciences »), mathématiques, sciences naturelles et de l'ingénieur (disciplines MINT, « Mathematics, Natural- and Engineering Science ») et sciences de la vie (disciplines SV « Biology and Medicine »). La variable `ResearchInstitution` comprend l’institution dans laquelle la recherche du subside correspondant est principalement effectuée – celle-ci correspond dans la plupart des cas à l’institution de  la personne requérante. Afin d’améliorer la comparabilité, nous nous limitons à l’encouragement de projets au sein des grandes institutions. Dans un premier temps, nous filtrons par conséquent les données relatives à cet instrument (variable `FundingInstrumentLevel1`) et ne retenons que les institutions dans lesquels 50 subsides ont été octroyés aux scientifiques entre 2011 et 2021.
+
+
+```{r list-of-institutions-with-over-50-grants, echo=TRUE}
+# Create a vector with institutions with more than 50 grants between 2011-2021
+inst_above_50_grants <- grants %>% 
+  # Subset project funding
+  filter(FundingInstrumentLevel1 == "Projects") %>% 
+  count(ResearchInstitution, sort = TRUE) %>% 
+  # Keep only institutions with with more than 50 grants
+  filter(n > 50)
+
+inst_above_50_grants
+```
+
+Sur `r grants %>% filter(FundingInstrumentLevel1 == "Projects") %>% distinct(ResearchInstitution) %>% nrow()` institutions ayant bénéficié d’un financement dans le cadre de l’encouragement de projets sur la période considérée, `r nrow(inst_above_50_grants)` ont bénéficié de plus de 50 subsides – nous allons examiner ces `r nrow(inst_above_50_grants)` institutions de plus près.
+
+Nous commençons par dénombrer combien de subsides le FNS a octroyé dans chaque domaine à ces institutions. Nous calculons ensuite pour chaque institution le pourcentage auquel cela correspond. Enfin, nous faisons apparaître les parts de chaque institution par ordre alphabétique dans un diagramme à colonnes superposées.
+
+```{r research-domain-profile-per-institution, fig.height=9, echo=TRUE}
+# Project funding SSH/MINT/LS: Calculate the shares of each research domain in 
+# the number of grants per funded research institution (2011-2021)
+inst_research_domain_shares <- grants %>% 
+  # Subset project funding
+  filter(FundingInstrumentLevel1 == "Projects",
+         # Only the institutions more than 50 grants
+         ResearchInstitution %in% inst_above_50_grants$ResearchInstitution) %>% 
+  count(ResearchInstitution, MainDiscipline_Level1) %>%  
+  # Calculate the share of each institution
+  group_by(ResearchInstitution) %>%  
+  mutate(freq = n / sum(n)) %>%  
+  # Count the number of grants per research domain in each institution
+  ungroup() %>% 
+  # The institution names are too long for the graph, only keep their 
+  # abbreviation (after the "-" character in the name)
+  mutate(ResearchInstitution = str_extract(ResearchInstitution, 
+                                           "(?<=- ).*"), 
+         # Ordering of the research domains
+         MainDiscipline_Level1 = fct_relevel(
+           MainDiscipline_Level1, 
+           c("Humanities and Social Sciences", 
+             "Mathematics, Natural- and Engineering Sciences", 
+             "Biology and Medicine"))) 
+
+# Plot the shares
+inst_research_domain_shares %>%  
+  ggplot(aes(x = fct_rev(ResearchInstitution), 
+             y = freq, fill = fct_rev(MainDiscipline_Level1))) + 
+  geom_col(color = "white") + 
+  # Show percentage label, but only when the share is at least 5%
+  geom_text(aes(label =  if_else(freq >= 0.05, paste0(round(freq * 100), "%"), 
+                                 "")), 
+            position = position_stack(vjust = 0.5), color = "white", size = 3) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(x = NULL, y = NULL) +
+  # Override ggplot default theme
+  scale_fill_manual(values = c("#71B294", "#FBBE5E", "#5298BD"), 
+                    guide = guide_legend(reverse = TRUE, ncol = 1)) +
+  coord_flip() +
+  labs(title = "Research domains in Project Funding, by research institution", 
+    subtitle = paste0(min(granted_per_year$CallDecisionYear), "-", 
+       max(granted_per_year$CallDecisionYear), 
+       ", institutions with >50 grants")) +
+  theme_light() + 
+  theme(legend.position = "bottom", 
+        legend.title = element_blank()) 
+```
+
+Le diagramme montre que les domaines scientifiques auxquels appartiennent les projets encouragés par le FNS occupent une place variable au sein des différentes institutions. Au moins 80% des projets réalisés à la Haute école spécialisée de Suisse orientale, à l’Institut de hautes études de Genève (IHEID), dans les universités de Lucerne (LU) et de St-Gall (SG) ainsi qu’à la Haute école des arts de Zurich (ZHdK) relèvent ainsi des sciences humaines et sociales. Les projets menés au Laboratoire fédéral d’essai des matériaux et de recherche (EMPA) et à l’institut Paul Scherrer (PSI) concernent à plus de 80% les disciplines MINT. Les sciences de la vie n’atteignent des taux correspondants dans aucune des institutions citées, et le chiffre le plus élevé, à hauteur de `r round(inst_research_domain_shares %>% filter(MainDiscipline_Level1 == "Biology and Medicine", ResearchInstitution == "LA") %>% arrange(-freq) %>% slice(1) %>% pull(freq) * 100)` %, est relevé à l’Université de Lausanne.
+
+
+<div class="info-box">
+
+### Introduction à la langue de programmation R {#rintro}
+
+<a href="https://www.r-project.org/" target="_blank">R</a> est une langue de programmation gratuite qui se prête tout particulièrement à la réalisation de calculs statistiques et de visualisation de données. Comme environnement de développement, nous recommandons d’installer le <a href="https://www.rstudio.com/" target="_blank">RStudio</a> qui est également gratuit. Liens complémentaires :
+
+* <a href="https://rstudio-education.github.io/hopr/starting.html" target="_blank">Installation de R et de RStudio sur Windows, Mac et Linux</a>
+* <a href="https://r4ds.had.co.nz/" target="_blank">Introduction à R et au `tidyverse` : « R for Data Science »</a>
+* <a href="https://ggplot2-book.org/" target="_blank">Réalisation de visualisation de données avec le package `ggplot2`: « ggplot2: elegant graphics for data analysis»</a>
+
+</div>
+
+<p><em>
+
+A travers plusieurs récits de données, nous montrons comment vous pouvez utiliser les données ouvertes du FNS pour effectuer des analyses de l’encouragement de projets. Afin d’améliorer la mise en pratique et la reproductibilité de ces exemples, nous avons fait apparaître directement le code de la langue de programmation dans le présent récit de données. 
+
+</em></p>
+Les données, le texte et le code de ce récit de données sont <a href="https://github.com/snsf-data/datastory_use_snsf_open_data" target="_blank">disponibles sur Github</a> et <a href="https://doi.org/10.46446/datastory.use-snsf-open-data" target="_blank">archivés sur Zenodo</a>. DOI: 10.46446/datastory.use-snsf-open-data
+
+```{r prevent-internal-snsf-packages, include=FALSE}
+# Internal SNSF packages must not be used in data stories, as their
+# pre-processing functions are internal and the corporate design differs from
+# the data portal.
+if (any(c("snfverse", "snf.preprocessing", "snf.plot") %in% 
+        loadedNamespaces())) {
+  stop(glue(
+    "You must not use internal SNSF packages in data stories.",
+    " Please resort to snf.datastory."
+  ))
+}
+```
