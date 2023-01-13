@@ -105,7 +105,9 @@ Vous trouverez de plus amples renseignements sur ce qu’est précisément la la
 
 <div class="info-box">
 
-### Utilisation d’Excel à des fins d’analyse {#excel}
+### Utilisation d'autres outils pour l'analyse 
+
+#### Excel {#excel}
 
 Afin de faciliter l’analyse de nos données avec Microsoft Excel, les données disponibles sur le portail du FNS sont disponibles, mais aussi au format Excel en plus du format CSV.
 
@@ -114,6 +116,10 @@ Afin de faciliter l’analyse de nos données avec Microsoft Excel, les données
 * Pour télécharger des « <a href="https://data.snf.ch/key-figures/" target="_blank">chiffres clés FNS</a> », cliquez sur « Télécharger (Excel) » sur la page correspondante.
 
 Les données peuvent être triées et filtrées dans l’onglet « Données » sur Excel. La fonction « Tableau croisé dynamique » permet de les regrouper et de les additionner.
+
+#### Python {#python}
+
+Pour une implémentation du code en Python, veuillez consulter <a href="https://github.com/rnckp/opendata_snsf-startercode" target="_blank">la version créée par Patrick Arnecke sur Github</a>.
 
 </div>
 

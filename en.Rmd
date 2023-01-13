@@ -104,7 +104,9 @@ A [section at the end of the main text](#rintro) describes the R programming lan
 
 <div class="info-box">
 
-### Analysis using Excel {#excel}
+### Analysis using other tools
+
+#### Excel {#excel}
 
 Because we also wanted to make it easier to analyse data using Microsoft Excel, SNSF data are available on the Data Portal in both Excel and CSV formats.
 
@@ -113,6 +115,11 @@ Because we also wanted to make it easier to analyse data using Microsoft Excel, 
 * To download data from "<a href="https://data.snf.ch/key-figures/" target="_blank">SNSF Key Figures</a>", click on “Download (Excel)” on the respective page.
 
 Data can be sorted and filtered in the "Data" tab in Excel. You can then group and sum them using the "PivotTable" function.
+
+
+#### Python {#python}
+
+For an implementation of the code in Python, please consult <a href="https://github.com/rnckp/opendata_snsf-startercode" target="_blank">the version created by Patrick Arnecke on Github</a>.
 
 </div>
 

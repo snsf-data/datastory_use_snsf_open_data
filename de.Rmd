@@ -99,7 +99,9 @@ Was die Programmiersprache R genau ist, erfahren Sie [in einem Abschnitt am Ende
 
 <div class="info-box">
 
-### Verwendung von Excel für die Analyse {#excel}
+### Verwendung anderen Tools für die Analyse
+
+#### Excel {#excel}
 
 Um die Analyse unserer Daten auch mit Microsoft Excel zu erleichtern, bieten wir auf dem Datenportal SNF-Daten zusätzlich zum CSV-Format im Excelformat an.
 
@@ -108,6 +110,10 @@ Um die Analyse unserer Daten auch mit Microsoft Excel zu erleichtern, bieten wir
 * Um Daten der "<a href="https://data.snf.ch/key-figures/" target="_blank">SNF-Kennzahlen</a>" herunterzuladen, klicken Sie auf der jeweiligen Seite auf "Download (Excel)". 
 
 Im Reiter "Daten" in Excel können die Daten sortiert und filtriert werden. Mit der Funktion "PivotTable" lassen sie sich gruppieren und aufsummieren. 
+
+#### Python {#python}
+
+Für eine Implementierung des Codes in Python, bitte konsultieren Sie <a href="https://github.com/rnckp/opendata_snsf-startercode" target="_blank">die von Patrick Arnecke erstellte Version auf Github</a>.
 
 </div>
 
